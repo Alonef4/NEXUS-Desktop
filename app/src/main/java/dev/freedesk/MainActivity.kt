@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Display
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -83,7 +84,15 @@ class MainActivity : Activity() {
         }
         col.addView(output)
 
-        setContentView(ScrollView(this).apply { addView(col) })
+        setContentView(ScrollView(this).apply {
+            addView(col)
+            // Android 15+ draws edge-to-edge; keep the content clear of the status/navigation bars.
+            setOnApplyWindowInsetsListener { v, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                v.setPadding(0, bars.top, 0, bars.bottom)
+                insets
+            }
+        })
 
         Shizuku.addRequestPermissionResultListener(permListener)
         Shizuku.addBinderReceivedListenerSticky(binderListener)
