@@ -19,6 +19,15 @@
             android:name="moe.shizuku.client.V3_SUPPORT"
             android:value="true" />
 
+        <!-- Shizuku delivers its binder to the app through this provider; without it the app never sees Shizuku. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
