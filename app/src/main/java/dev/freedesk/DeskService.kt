@@ -14,6 +14,7 @@ import android.view.MotionEvent
 import android.view.Surface
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -65,7 +66,9 @@ class DeskService : IDeskService.Stub() {
             .newInstance(ctx)
     }
 
-    private val displays = HashMap<Int, VirtualDisplay>()
+    // Read from several binder threads (input is oneway), so these must be thread-safe.
+    private val displays = ConcurrentHashMap<Int, VirtualDisplay>()
+    private val surfaces = ConcurrentHashMap<Int, Surface>() // keep the Surface alive while the display uses it
     private var counter = 0
     private var ownerUid = -1
 
@@ -197,6 +200,7 @@ class DeskService : IDeskService.Stub() {
         val vd = createWithTiers("FreeDesk-${++counter}", width, height, dpi, surface, refreshRate, secure)
         val id = vd.display.displayId
         displays[id] = vd
+        if (surface != null) surfaces[id] = surface
         applyImePolicy(id)
         return id
     }
@@ -211,18 +215,21 @@ class DeskService : IDeskService.Stub() {
     override fun setSurface(displayId: Int, surface: Surface?) {
         requireOwner()
         displays[displayId]?.surface = surface
+        if (surface != null) surfaces[displayId] = surface else surfaces.remove(displayId)
     }
 
     @Synchronized
     override fun releaseDisplay(displayId: Int) {
         requireOwner()
         displays.remove(displayId)?.release()
+        surfaces.remove(displayId)
     }
 
     @Synchronized
     override fun destroy() {
         displays.values.forEach { try { it.release() } catch (_: Throwable) {} }
         displays.clear()
+        surfaces.clear()
         System.exit(0)
     }
 
@@ -295,28 +302,32 @@ class DeskService : IDeskService.Stub() {
 
     // --------------------------------------------------------------- launch
 
-    override fun launch(displayId: Int, component: String?, newTask: Boolean): String {
+    override fun launch(displayId: Int, component: String?, newTask: Boolean, freeform: Boolean): String {
         requireOwner()
         if (component == null || !COMPONENT_RE.matches(component)) return "Error: bad component"
         if (!displays.containsKey(displayId)) return "Error: unknown display $displayId"
         val cmd = ArrayList<String>()
         cmd += listOf("am", "start", "--display", displayId.toString())
         if (newTask) cmd += listOf("-f", "0x18000000") // NEW_TASK | MULTIPLE_TASK
+        if (freeform) cmd += listOf("--windowingMode", "5") // WINDOWING_MODE_FREEFORM
         cmd += listOf("-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-n", component)
         val out = run(cmd)
         Log.i(TAG, "am start $component -> $out")
-        return if (out.contains("Error", ignoreCase = true) || out.contains("Exception")) out else ""
+        // "Warning: Activity not started, its current task has been brought to the front" means the app
+        // stayed on its old display; report it instead of pretending the launch worked.
+        return if (out.contains("Error", ignoreCase = true) || out.contains("Exception") ||
+            out.contains("Warning", ignoreCase = true)) out else ""
     }
 
     // ----------------------------------------------------------- diagnostics
 
     override fun applySettings(enable: Boolean): String {
         requireOwner()
-        val v = if (enable) "1" else "0"
         val sb = StringBuilder()
         for (k in listOf("force_resizable_activities", "enable_freeform_support")) {
-            val out = run(listOf("settings", "put", "global", k, v))
-            sb.append("$k=$v ${if (out.isEmpty()) "ok" else out}\n")
+            val out = if (enable) run(listOf("settings", "put", "global", k, "1"))
+            else run(listOf("settings", "delete", "global", k))
+            sb.append("$k ${if (enable) "=1" else "removed"}: ${if (out.isEmpty()) "ok" else out}\n")
         }
         return sb.toString().trim()
     }

@@ -30,6 +30,7 @@ class MainActivity : Activity() {
     private lateinit var hzField: EditText
     private lateinit var displayBox: LinearLayout
     private lateinit var secureBox: CheckBox
+    private lateinit var freeformBox: CheckBox
 
     private val permListener = Shizuku.OnRequestPermissionResultListener { _, _ -> runOnUiThread { refresh() } }
     private val binderListener = Shizuku.OnBinderReceivedListener { runOnUiThread { refresh() } }
@@ -72,6 +73,8 @@ class MainActivity : Activity() {
 
         secureBox = CheckBox(this).apply { text = "Secure / DRM mode (experimental)" }
         col.addView(secureBox)
+        freeformBox = CheckBox(this).apply { text = "Freeform windows (experimental, needs the settings above)" }
+        col.addView(freeformBox)
         col.addView(button("Open desktop on THIS screen (test)") { openDesktop(Display.DEFAULT_DISPLAY) })
         displayBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(displayBox)
@@ -118,7 +121,11 @@ class MainActivity : Activity() {
             append("Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) ${Build.MODEL}\n")
             append("Shizuku running: $running\n")
             append("Permission granted: $granted\n")
-            if (running) append("Shizuku uid: ${try { Shizuku.getUid() } catch (_: Throwable) { "?" }}\n")
+            if (running) {
+                append("Shizuku uid: ${try { Shizuku.getUid() } catch (_: Throwable) { "?" }}\n")
+                append("Shizuku version: ${try { Shizuku.getVersion() } catch (_: Throwable) { "?" }}\n")
+                if (!granted) append("\nTap \"1. Grant Shizuku permission\".")
+            }
             if (!running) append("\nStart Shizuku first (Wireless debugging -> Start in the Shizuku app).")
         }
         listDisplays()
@@ -141,6 +148,10 @@ class MainActivity : Activity() {
             if (!Shizuku.pingBinder()) { toast("Shizuku is not running"); return }
             if (Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 toast("Already granted"); refresh(); return
+            }
+            if (Shizuku.shouldShowRequestPermissionRationale()) {
+                toast("Permission was denied. Open Shizuku > Authorized apps and allow this app.")
+                return
             }
             Shizuku.requestPermission(1)
         } catch (t: Throwable) {
@@ -180,6 +191,7 @@ class MainActivity : Activity() {
             .putExtra("dpi", dpiField.text.toString().toIntOrNull() ?: 240)
             .putExtra("hz", (hzField.text.toString().toFloatOrNull() ?: 120f))
             .putExtra("secure", secureBox.isChecked)
+            .putExtra("freeform", freeformBox.isChecked)
         if (displayId == Display.DEFAULT_DISPLAY) {
             startActivity(intent)
         } else {

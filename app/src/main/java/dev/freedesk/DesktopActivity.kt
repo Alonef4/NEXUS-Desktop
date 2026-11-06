@@ -10,6 +10,7 @@ import android.content.pm.ResolveInfo
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
@@ -48,6 +49,7 @@ class DesktopActivity : Activity(), SurfaceHolder.Callback {
     private var hz = 120f
     private var thai = false
     private var secure = false
+    private var freeform = false
     private var game = false
     private lateinit var gameButton: Button
     private var surfaceW = 0
@@ -60,8 +62,12 @@ class DesktopActivity : Activity(), SurfaceHolder.Callback {
         dpi = intent.getIntExtra("dpi", 240)
         hz = intent.getFloatExtra("hz", 120f)
         secure = intent.getBooleanExtra("secure", false)
+        freeform = intent.getBooleanExtra("freeform", false)
         if (secure) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         pickDisplayMode()
 
         val root = LinearLayout(this).apply {
@@ -75,6 +81,12 @@ class DesktopActivity : Activity(), SurfaceHolder.Callback {
         }
         root.addView(surfaceView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(buildTaskbar(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        // Edge-to-edge is enforced on Android 15+: keep the display and taskbar clear of bars/camera cutout.
+        root.setOnApplyWindowInsetsListener { v, insets ->
+            val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            insets
+        }
         setContentView(root)
 
         window.insetsController?.let {
@@ -90,7 +102,16 @@ class DesktopActivity : Activity(), SurfaceHolder.Callback {
 
         ServiceClient.get { svc ->
             service = svc
-            if (svc == null) toast("Shizuku service unavailable") else syncDisplay()
+            if (svc == null) {
+                toast("Shizuku service unavailable")
+            } else {
+                try {
+                    svc.asBinder().linkToDeath(IBinder.DeathRecipient {
+                        runOnUiThread { toast("Shizuku service stopped (restart Shizuku, then reopen)") }
+                    }, 0)
+                } catch (_: Throwable) {}
+                syncDisplay()
+            }
         }
     }
 
@@ -198,11 +219,23 @@ class DesktopActivity : Activity(), SurfaceHolder.Callback {
         return true
     }
 
-    /** Experimental: put the character on the clipboard and send Ctrl-less PASTE to the guest. */
+    /** Experimental: put the character on the clipboard, then send Ctrl+V to the guest. */
     private fun pasteText(text: String) {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("freedesk", text))
-        ui.postDelayed({ injectKey(KeyEvent.KEYCODE_PASTE) }, 30)
+        ui.postDelayed({ injectPaste() }, 30)
+    }
+
+    private fun injectPaste() {
+        val t = SystemClock.uptimeMillis()
+        val ctrl = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+        val seq = listOf(
+            KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_CTRL_LEFT, 0, ctrl),
+            KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_V, 0, ctrl),
+            KeyEvent(t, t, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_V, 0, ctrl),
+            KeyEvent(t, t, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_CTRL_LEFT, 0, 0),
+        )
+        for (k in seq) try { service?.injectKey(displayId, k) } catch (_: Throwable) {}
     }
 
     /** Game mode: capture the physical mouse so the host cursor hides and relative deltas reach the game. */
@@ -294,7 +327,7 @@ class DesktopActivity : Activity(), SurfaceHolder.Callback {
         val id = displayId
         if (id < 0) { toast("Display not ready"); return }
         Thread {
-            val result = try { svc.launch(id, component, false) } catch (t: Throwable) { "Error: ${t.message}" }
+            val result = try { svc.launch(id, component, false, freeform) } catch (t: Throwable) { "Error: ${t.message}" }
             if (result.isNotEmpty()) runOnUiThread { toast(result.take(200)) }
         }.start()
     }

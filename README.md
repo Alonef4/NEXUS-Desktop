@@ -1,7 +1,7 @@
 # NEXUS Desktop (v0.1, prototype)
 
 DeX-like desktop windows on a second screen, for phones without Samsung DeX
-(target: vivo X200 Pro, OriginOS 7 / Android 16). Needs Shizuku (no PC required).
+(target: vivo X200 Pro, OriginOS 7; the device reports Android 17 / SDK 37). Needs Shizuku (no PC required).
 
 ## How it works
 1. A Shizuku "user service" runs as shell uid 2000 and creates a trusted **VirtualDisplay**

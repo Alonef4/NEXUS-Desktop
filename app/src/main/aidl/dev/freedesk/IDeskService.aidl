@@ -14,7 +14,7 @@ interface IDeskService {
     void setSurface(int displayId, in Surface surface) = 3;
     void releaseDisplay(int displayId) = 4;
     // Returns "" on success, otherwise the error text printed by `am start`.
-    String launch(int displayId, String component, boolean newTask) = 5;
+    String launch(int displayId, String component, boolean newTask, boolean freeform) = 5;
     oneway void injectMotion(int displayId, in MotionEvent event) = 6;
     oneway void injectKey(int displayId, in KeyEvent event) = 7;
     String diagnose() = 8;
