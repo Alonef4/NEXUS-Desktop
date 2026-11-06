@@ -77,9 +77,20 @@ class DeskService : IDeskService.Stub() {
 
     init {
         try {
-            org.lsposed.hiddenapibypass.HiddenApiBypass.addHiddenApiExemptions("L")
+            // "Meta reflection": reflect on Class.getDeclaredMethod itself so the hidden-API check
+            // sees a system caller, then ask the runtime to exempt every hidden API.
+            val forName = Class::class.java.getDeclaredMethod("forName", String::class.java)
+            val getDeclared = Class::class.java.getDeclaredMethod(
+                "getDeclaredMethod", String::class.java, arrayOf<Class<*>>()::class.java,
+            )
+            val vmRuntime = forName.invoke(null, "dalvik.system.VMRuntime") as Class<*>
+            val getRuntime = getDeclared.invoke(vmRuntime, "getRuntime", arrayOfNulls<Class<*>>(0)) as Method
+            val setExemptions = getDeclared.invoke(
+                vmRuntime, "setHiddenApiExemptions", arrayOf<Class<*>>(Array<String>::class.java),
+            ) as Method
+            setExemptions.invoke(getRuntime.invoke(null), arrayOf("L"))
         } catch (t: Throwable) {
-            Log.w(TAG, "hidden api bypass failed: $t")
+            Log.w(TAG, "hidden api exemption failed: $t")
         }
     }
 
